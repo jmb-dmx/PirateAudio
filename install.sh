@@ -123,10 +123,10 @@ sudo systemctl enable wifi-powersave-off
 sudo systemctl start wifi-powersave-off
 
 ########################################
-# PYTHON LIBS
+# PYTHON LIBS (PIMORONI)
 ########################################
 
-echo "➡️ Installation librairies Python"
+echo "➡️ Installation librairies Python écran"
 pip3 install --break-system-packages st7789 gpiodevice requests pillow
 
 ########################################
@@ -170,14 +170,14 @@ EOF
 sudo systemctl enable squeezelite
 
 ########################################
-# SCRIPT ÉCRAN
+# SCRIPT ÉCRAN (ST7789 FIX)
 ########################################
 
 echo "➡️ Création pirate_display.py"
 
 cat > "$HOME/pirate_display.py" <<EOF
 #!/usr/bin/env python3
-import time, os, requests
+import time, requests
 from PIL import Image, ImageEnhance
 from io import BytesIO
 import st7789
@@ -195,9 +195,18 @@ AIR=f"{IMG}/airplay.png"
 
 HEADERS={"Authorization":f"Bearer {TOKEN}"}
 
-disp=st7789.ST7789(
-    port=0, cs=1, dc=9, backlight=13,
-    width=240, height=240, rotation=90
+disp = st7789.ST7789(
+    port=0,
+    cs=1,
+    dc=9,
+    backlight=13,
+    width=240,
+    height=240,
+    rotation=90,
+    spi_speed_hz=80_000_000,
+    offset_left=0,
+    offset_top=0,
+    invert=True
 )
 disp.begin()
 
@@ -240,7 +249,7 @@ EOF
 chmod +x "$HOME/pirate_display.py"
 
 ########################################
-# SERVICE ÉCRAN (ATTENTE ACTIVE HA)
+# SERVICE ÉCRAN
 ########################################
 
 echo "➡️ Service pirate-display"
@@ -254,7 +263,6 @@ Wants=network-online.target
 [Service]
 User=$USER
 ExecStartPre=/bin/sleep 10
-ExecStartPre=/usr/bin/bash -c 'until curl -fsSL -H "Authorization: Bearer $HA_TOKEN" $HA_URL/api/states/media_player.pirate_audio >/dev/null; do sleep 2; done'
 ExecStart=/usr/bin/python3 $HOME/pirate_display.py
 Restart=always
 RestartSec=2
