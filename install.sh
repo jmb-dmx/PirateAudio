@@ -148,7 +148,6 @@ AIR=f"{IMG}/airplay.png"
 
 HEADERS={"Authorization":f"Bearer {TOKEN}"}
 
-# --- ST7789 INIT (VALIDATED) ---
 disp = st7789.ST7789(
     port=0,
     cs=1,
@@ -163,7 +162,6 @@ disp = st7789.ST7789(
 disp.begin()
 disp.set_backlight(1)
 time.sleep(0.1)
-# --------------------------------
 
 def ha(e):
     r = requests.get(f"{HA_URL}/api/states/{e}", headers=HEADERS, timeout=5)
@@ -208,7 +206,7 @@ EOF
 chmod +x "$HOME/pirate_display.py"
 
 ########################################
-# SYSTEMD SERVICE
+# SYSTEMD SERVICE (FIX TIMEOUT)
 ########################################
 
 echo "[*] Creating pirate-display.service"
@@ -220,11 +218,15 @@ After=network-online.target squeezelite.service shairport-sync.service
 Wants=network-online.target
 
 [Service]
+Type=simple
 User=raspberry
+
 ExecStartPre=/usr/bin/bash -c 'until [ -e /dev/spidev0.0 ]; do sleep 0.2; done'
 ExecStart=/usr/bin/python3 /home/raspberry/pirate_display.py
+
 Restart=always
 RestartSec=2
+TimeoutStartSec=0
 
 [Install]
 WantedBy=multi-user.target
