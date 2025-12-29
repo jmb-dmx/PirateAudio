@@ -2,19 +2,19 @@
 set -e
 
 ########################################
-# PIRATE AUDIO - AUTONOMOUS INSTALL
-# Works with: curl | bash
+# PIRATE AUDIO - FINAL INSTALLER
+# curl | bash SAFE
 ########################################
 
 USER="raspberry"
 HOME_DIR="/home/$USER"
 ENV_FILE="$HOME_DIR/.pirateaudio.env"
+IMG_DIR="$HOME_DIR/images"
 BOOTCFG="/boot/firmware/config.txt"
 
 GITHUB_USER="jmb-dmx"
 GITHUB_REPO="PirateAudio"
 GITHUB_BRANCH="main"
-
 RAW_BASE="https://raw.githubusercontent.com/$GITHUB_USER/$GITHUB_REPO/$GITHUB_BRANCH"
 
 echo "[*] PirateAudio installation"
@@ -42,9 +42,9 @@ if [[ -z "$HA_URL" || -z "$HA_TOKEN" ]]; then
 fi
 
 ########################################
-# STORE LOCAL ENV (SECURE)
+# STORE LOCAL ENV
 ########################################
-echo "[*] Storing local credentials"
+echo "[*] Storing Home Assistant credentials"
 
 cat > "$ENV_FILE" <<EOF
 HA_URL=$HA_URL
@@ -53,6 +53,13 @@ EOF
 
 chmod 600 "$ENV_FILE"
 chown $USER:$USER "$ENV_FILE"
+
+########################################
+# HOSTNAME
+########################################
+echo "[*] Setting hostname to PirateAudio"
+sudo hostnamectl set-hostname PirateAudio
+sudo sed -i 's/^127\.0\.1\.1.*/127.0.1.1\tPirateAudio/' /etc/hosts
 
 ########################################
 # DEPENDENCIES
@@ -76,7 +83,7 @@ grep -q "^dtparam=i2c_arm=on" "$BOOTCFG" || echo "dtparam=i2c_arm=on" | sudo tee
 grep -q "^dtoverlay=hifiberry-dac" "$BOOTCFG" || echo "dtoverlay=hifiberry-dac" | sudo tee -a "$BOOTCFG"
 
 ########################################
-# PYTHON LIBRARIES
+# PYTHON LIBS
 ########################################
 echo "[*] Installing Python libraries"
 
@@ -84,16 +91,28 @@ pip3 install --break-system-packages \
   st7789 gpiodevice requests pillow spidev
 
 ########################################
-# DOWNLOAD USER SCRIPTS FROM GITHUB
+# DOWNLOAD SCRIPTS
 ########################################
 echo "[*] Downloading PirateAudio scripts"
 
 curl -fsSL "$RAW_BASE/pirate_display.py" -o "$HOME_DIR/pirate_display.py"
 curl -fsSL "$RAW_BASE/pirate_buttons.py" -o "$HOME_DIR/pirate_buttons.py"
 
-chmod +x "$HOME_DIR/pirate_display.py"
-chmod +x "$HOME_DIR/pirate_buttons.py"
+chmod +x "$HOME_DIR/pirate_display.py" "$HOME_DIR/pirate_buttons.py"
 chown $USER:$USER "$HOME_DIR/pirate_display.py" "$HOME_DIR/pirate_buttons.py"
+
+########################################
+# IMAGES
+########################################
+echo "[*] Installing images"
+
+mkdir -p "$IMG_DIR"
+
+curl -fsSL "$RAW_BASE/images/boot.png"    -o "$IMG_DIR/boot.png"
+curl -fsSL "$RAW_BASE/images/idle.png"    -o "$IMG_DIR/idle.png"
+curl -fsSL "$RAW_BASE/images/airplay.png" -o "$IMG_DIR/airplay.png"
+
+chown -R $USER:$USER "$IMG_DIR"
 
 ########################################
 # DISPLAY SERVICE
