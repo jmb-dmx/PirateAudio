@@ -153,9 +153,15 @@ FLAG="/tmp/airplay_active"
 HEADERS={"Authorization":f"Bearer {TOKEN}"}
 
 disp=st7789.ST7789(
-    port=0, cs=1, dc=9, backlight=13,
-    width=240, height=240
+    port=0,
+    cs=1,
+    dc=9,
+    backlight=13,
+    width=240,
+    height=240,
+    rotation=90
 )
+
 disp.begin()
 
 def get_state(e):
