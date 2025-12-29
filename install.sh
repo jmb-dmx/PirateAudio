@@ -104,7 +104,8 @@ echo "[*] Downloading images"
 mkdir -p "$IMG_DIR"
 
 for img in boot.png idle.png airplay.png; do
-  curl -fsSL "$IMG_BASE_URL/$img" -o "$IMG_DIR/$img" || echo "[WARN] $img missing"
+  echo "    - $img"
+  curl -fsSL "$IMG_BASE_URL/$img" -o "$IMG_DIR/$img" || echo "      [WARN] $img missing"
 done
 
 ########################################
@@ -123,7 +124,7 @@ alsa = {
 EOF
 
 ########################################
-# DISPLAY SCRIPT (FINAL INIT)
+# DISPLAY SCRIPT (VALIDATED INIT)
 ########################################
 
 echo "[*] Creating pirate_display.py"
@@ -148,6 +149,7 @@ AIR=f"{IMG}/airplay.png"
 
 HEADERS={"Authorization":f"Bearer {TOKEN}"}
 
+# ---- ST7789 INIT (Pirate Audio VALIDATED) ----
 disp = st7789.ST7789(
     port=0,
     cs=1,
@@ -158,10 +160,10 @@ disp = st7789.ST7789(
     height=240,
     rotation=90
 )
-
 disp.begin()
 disp.set_backlight(1)
 time.sleep(0.1)
+# --------------------------------------------
 
 def ha(e):
     r = requests.get(f"{HA_URL}/api/states/{e}", headers=HEADERS, timeout=5)
@@ -206,7 +208,7 @@ EOF
 chmod +x "$HOME/pirate_display.py"
 
 ########################################
-# SYSTEMD SERVICE (FIX TIMEOUT)
+# SYSTEMD SERVICE (NO START DURING INSTALL)
 ########################################
 
 echo "[*] Creating pirate-display.service"
@@ -233,17 +235,20 @@ WantedBy=multi-user.target
 EOF
 
 ########################################
-# ENABLE SERVICES
+# ENABLE SERVICES (NO START)
 ########################################
 
-echo "[*] Enabling services"
+echo "[*] Enabling services for next boot"
 sudo systemctl daemon-reload
 sudo systemctl enable pirate-display
 sudo systemctl enable shairport-sync
-sudo systemctl start pirate-display
-sudo systemctl start shairport-sync
+
+########################################
+# REBOOT
+########################################
 
 echo
 echo "[OK] Installation complete"
-echo "[INFO] Reboot required"
-echo
+echo "[INFO] System will reboot in 5 seconds"
+sleep 5
+sudo reboot
