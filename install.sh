@@ -32,6 +32,8 @@ GITHUB_REPO="PirateAudio"
 GITHUB_BRANCH="main"
 IMG_BASE_URL="https://raw.githubusercontent.com/$GITHUB_USER/$GITHUB_REPO/$GITHUB_BRANCH/images"
 
+CONFIG_FILE="/boot/firmware/config.txt"
+
 ########################################
 echo "➡️ Mise à jour système"
 ########################################
@@ -46,6 +48,25 @@ sudo apt install -y \
   curl git unzip iw \
   alsa-utils \
   squeezelite shairport-sync
+
+########################################
+echo "➡️ Activation SPI et I2C"
+########################################
+
+if ! grep -q "^dtparam=spi=on" "$CONFIG_FILE"; then
+  echo "dtparam=spi=on" | sudo tee -a "$CONFIG_FILE"
+fi
+
+if ! grep -q "^dtparam=i2c_arm=on" "$CONFIG_FILE"; then
+  echo "dtparam=i2c_arm=on" | sudo tee -a "$CONFIG_FILE"
+fi
+
+########################################
+echo "➡️ Activation DAC I2S"
+########################################
+if ! grep -q "^dtoverlay=hifiberry-dac" "$CONFIG_FILE"; then
+  echo "dtoverlay=hifiberry-dac" | sudo tee -a "$CONFIG_FILE"
+fi
 
 ########################################
 echo "➡️ Désactivation Wi-Fi power save"
@@ -67,13 +88,6 @@ EOF
 sudo systemctl daemon-reload
 sudo systemctl enable wifi-powersave-off
 sudo systemctl start wifi-powersave-off
-
-########################################
-echo "➡️ Activation DAC I2S"
-########################################
-if ! grep -q "hifiberry-dac" /boot/firmware/config.txt; then
-  echo "dtoverlay=hifiberry-dac" | sudo tee -a /boot/firmware/config.txt
-fi
 
 ########################################
 echo "➡️ Librairies Python écran / GPIO"
@@ -130,7 +144,7 @@ echo "➡️ Activation Squeezelite"
 sudo systemctl enable squeezelite
 
 ########################################
-echo "➡️ Script écran Pirate Audio"
+echo "➡️ Création du script écran pirate_display.py"
 ########################################
 cat > "$HOME/pirate_display.py" <<EOF
 #!/usr/bin/env python3
@@ -141,6 +155,7 @@ import st7789
 
 HA_URL="$HA_URL"
 TOKEN="$HA_TOKEN"
+
 PLAYER="media_player.pirate_audio"
 BRIGHT="input_number.pirate_brightness"
 
@@ -152,7 +167,7 @@ FLAG="/tmp/airplay_active"
 
 HEADERS={"Authorization":f"Bearer {TOKEN}"}
 
-disp=st7789.ST7789(
+disp = st7789.ST7789(
     port=0,
     cs=1,
     dc=9,
@@ -161,47 +176,55 @@ disp=st7789.ST7789(
     height=240,
     rotation=90
 )
-
 disp.begin()
 
-def get_state(e):
-    r=requests.get(f"{HA_URL}/api/states/{e}",headers=HEADERS,timeout=5)
+def get_state(entity):
+    r = requests.get(
+        f"{HA_URL}/api/states/{entity}",
+        headers=HEADERS,
+        timeout=5
+    )
     r.raise_for_status()
     return r.json()
 
-def show(img,b):
-    img=Image.open(img).resize((240,240)).convert("RGB")
-    img=ImageEnhance.Brightness(img).enhance(max(0.05,b/100))
+def show_image(path, brightness):
+    img = Image.open(path).resize((240,240)).convert("RGB")
+    img = ImageEnhance.Brightness(img).enhance(max(0.05, brightness/100))
     disp.display(img)
 
-last=None
+last = None
+
 while True:
     try:
-        b=int(float(get_state(BRIGHT)["state"]))
+        brightness = int(float(get_state(BRIGHT)["state"]))
     except:
-        b=100
+        brightness = 100
 
     if os.path.exists(FLAG):
-        if last!="airplay":
-            show(AIRPLAY,b); last="airplay"
-        time.sleep(1); continue
+        if last != "airplay":
+            show_image(AIRPLAY, brightness)
+            last = "airplay"
+        time.sleep(1)
+        continue
 
     try:
-        p=get_state(PLAYER)
-        if p["state"]!="playing":
-            if last!="idle":
-                show(IDLE,b); last="idle"
+        player = get_state(PLAYER)
+        if player["state"] != "playing":
+            if last != "idle":
+                show_image(IDLE, brightness)
+                last = "idle"
         else:
-            pic=p["attributes"].get("entity_picture")
+            pic = player["attributes"].get("entity_picture")
             if pic:
-                url=pic if pic.startswith("http") else HA_URL+pic
-                img=requests.get(url,headers=HEADERS,timeout=5).content
-                im=Image.open(BytesIO(img)).resize((240,240))
-                im=ImageEnhance.Brightness(im).enhance(b/100)
-                disp.display(im)
-                last="cover"
+                url = pic if pic.startswith("http") else HA_URL + pic
+                data = requests.get(url, headers=HEADERS, timeout=5).content
+                img = Image.open(BytesIO(data)).resize((240,240))
+                img = ImageEnhance.Brightness(img).enhance(brightness/100)
+                disp.display(img)
+                last = "cover"
     except:
-        show(BOOT,b); last="boot"
+        show_image(BOOT, brightness)
+        last = "boot"
 
     time.sleep(1)
 EOF
@@ -209,7 +232,7 @@ EOF
 chmod +x "$HOME/pirate_display.py"
 
 ########################################
-echo "➡️ Service écran"
+echo "➡️ Service écran systemd"
 ########################################
 sudo tee /etc/systemd/system/pirate-display.service > /dev/null <<EOF
 [Unit]
@@ -228,7 +251,7 @@ WantedBy=multi-user.target
 EOF
 
 ########################################
-echo "➡️ Finalisation services"
+echo "➡️ Finalisation des services"
 ########################################
 sudo systemctl daemon-reload
 sudo systemctl enable pirate-display
