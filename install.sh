@@ -27,6 +27,11 @@ HOME="/home/$USER"
 IMG_DIR="$HOME/images"
 PLAYER_NAME="PirateAudio"
 
+GITHUB_USER="jmb-dmx"
+GITHUB_REPO="PirateAudio"
+GITHUB_BRANCH="main"
+IMG_BASE_URL="https://raw.githubusercontent.com/$GITHUB_USER/$GITHUB_REPO/$GITHUB_BRANCH/images"
+
 ########################################
 echo "➡️ Mise à jour système"
 ########################################
@@ -77,10 +82,24 @@ pip3 install --break-system-packages \
   st7789 gpiodevice requests pillow
 
 ########################################
-echo "➡️ Dossier images"
+echo "➡️ Téléchargement des images depuis GitHub"
 ########################################
 mkdir -p "$IMG_DIR"
-touch "$IMG_DIR/boot.png" "$IMG_DIR/idle.png" "$IMG_DIR/airplay.png"
+
+download_image() {
+  local name="$1"
+  local url="$IMG_BASE_URL/$name"
+  local dest="$IMG_DIR/$name"
+
+  echo "📥 Téléchargement $name"
+  if ! curl -fsSL "$url" -o "$dest"; then
+    echo "⚠️ Impossible de télécharger $name (continuation)"
+  fi
+}
+
+download_image "boot.png"
+download_image "idle.png"
+download_image "airplay.png"
 
 ########################################
 echo "➡️ Configuration AirPlay"
@@ -98,7 +117,8 @@ alsa =
 };
 EOF
 
-sudo systemctl edit shairport-sync <<EOF
+sudo mkdir -p /etc/systemd/system/shairport-sync.service.d
+sudo tee /etc/systemd/system/shairport-sync.service.d/override.conf > /dev/null <<EOF
 [Unit]
 After=network-online.target squeezelite.service
 Wants=network-online.target
@@ -192,6 +212,7 @@ After=network-online.target squeezelite.service shairport-sync.service
 
 [Service]
 User=$USER
+ExecStartPre=/bin/sleep 5
 ExecStart=/usr/bin/python3 $HOME/pirate_display.py
 Restart=always
 RestartSec=2
