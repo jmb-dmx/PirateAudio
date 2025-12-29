@@ -2,16 +2,20 @@
 set -e
 
 ########################################
-# PIRATE AUDIO - INSTALLATION STABLE
-# - utilise les scripts existants
-# - demande le token dans le terminal
-# - ne stocke rien dans GitHub
+# PIRATE AUDIO - AUTONOMOUS INSTALL
+# Works with: curl | bash
 ########################################
 
 USER="raspberry"
 HOME_DIR="/home/$USER"
 ENV_FILE="$HOME_DIR/.pirateaudio.env"
 BOOTCFG="/boot/firmware/config.txt"
+
+GITHUB_USER="jmb-dmx"
+GITHUB_REPO="PirateAudio"
+GITHUB_BRANCH="main"
+
+RAW_BASE="https://raw.githubusercontent.com/$GITHUB_USER/$GITHUB_REPO/$GITHUB_BRANCH"
 
 echo "[*] PirateAudio installation"
 echo
@@ -24,7 +28,7 @@ sudo apt update
 sudo apt full-upgrade -y
 
 ########################################
-# ASK HOME ASSISTANT CONFIG (SECURE)
+# ASK HOME ASSISTANT CONFIG
 ########################################
 echo
 read -rp "Home Assistant URL (ex: http://192.168.1.161:8123): " HA_URL </dev/tty
@@ -38,7 +42,7 @@ if [[ -z "$HA_URL" || -z "$HA_TOKEN" ]]; then
 fi
 
 ########################################
-# STORE LOCAL ENV (NOT IN GITHUB)
+# STORE LOCAL ENV (SECURE)
 ########################################
 echo "[*] Storing local credentials"
 
@@ -54,6 +58,7 @@ chown $USER:$USER "$ENV_FILE"
 # DEPENDENCIES
 ########################################
 echo "[*] Installing dependencies"
+
 sudo apt install -y \
   python3 python3-pip \
   python3-pil python3-numpy \
@@ -74,16 +79,21 @@ grep -q "^dtoverlay=hifiberry-dac" "$BOOTCFG" || echo "dtoverlay=hifiberry-dac" 
 # PYTHON LIBRARIES
 ########################################
 echo "[*] Installing Python libraries"
+
 pip3 install --break-system-packages \
-  st7789 gpiodevice requests pillow
+  st7789 gpiodevice requests pillow spidev
 
 ########################################
-# COPY USER SCRIPTS (NO MODIFICATION)
+# DOWNLOAD USER SCRIPTS FROM GITHUB
 ########################################
-echo "[*] Installing user scripts"
+echo "[*] Downloading PirateAudio scripts"
 
-install -m 755 pirate_display.py "$HOME_DIR/pirate_display.py"
-install -m 755 pirate_buttons.py "$HOME_DIR/pirate_buttons.py"
+curl -fsSL "$RAW_BASE/pirate_display.py" -o "$HOME_DIR/pirate_display.py"
+curl -fsSL "$RAW_BASE/pirate_buttons.py" -o "$HOME_DIR/pirate_buttons.py"
+
+chmod +x "$HOME_DIR/pirate_display.py"
+chmod +x "$HOME_DIR/pirate_buttons.py"
+chown $USER:$USER "$HOME_DIR/pirate_display.py" "$HOME_DIR/pirate_buttons.py"
 
 ########################################
 # DISPLAY SERVICE
@@ -121,7 +131,6 @@ Wants=network-online.target
 
 [Service]
 User=raspberry
-EnvironmentFile=$ENV_FILE
 ExecStart=/usr/bin/python3 /home/raspberry/pirate_buttons.py
 Restart=always
 RestartSec=2
@@ -131,9 +140,10 @@ WantedBy=multi-user.target
 EOF
 
 ########################################
-# ENABLE SERVICES (NO START)
+# ENABLE SERVICES
 ########################################
 echo "[*] Enabling services"
+
 sudo systemctl daemon-reload
 sudo systemctl enable pirate-display
 sudo systemctl enable pirate-buttons
@@ -144,7 +154,7 @@ sudo systemctl enable shairport-sync
 # REBOOT
 ########################################
 echo
-echo "[OK] Installation finished"
+echo "[OK] Installation complete"
 echo "[INFO] Rebooting in 5 seconds"
 sleep 5
 sudo reboot
