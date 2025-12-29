@@ -2,9 +2,18 @@
 set -e
 
 ########################################
+# MISE À JOUR SYSTÈME (AVANT TOUT)
+########################################
+
+echo "🔄 Mise à jour complète du système (obligatoire)"
+sudo apt update
+sudo apt upgrade -y
+
+########################################
 # CONFIG INTERACTIVE
 ########################################
 
+echo
 echo "🏴‍☠️ Pirate Audio – Installation automatique"
 echo
 
@@ -22,27 +31,24 @@ fi
 ########################################
 # VARIABLES
 ########################################
+
 USER="raspberry"
 HOME="/home/$USER"
 IMG_DIR="$HOME/images"
 PLAYER_NAME="PirateAudio"
+
+CONFIG_FILE="/boot/firmware/config.txt"
 
 GITHUB_USER="jmb-dmx"
 GITHUB_REPO="PirateAudio"
 GITHUB_BRANCH="main"
 IMG_BASE_URL="https://raw.githubusercontent.com/$GITHUB_USER/$GITHUB_REPO/$GITHUB_BRANCH/images"
 
-CONFIG_FILE="/boot/firmware/config.txt"
+########################################
+# INSTALLATION DÉPENDANCES
+########################################
 
-########################################
-echo "➡️ Mise à jour système"
-########################################
-sudo apt update
-sudo apt full-upgrade -y
-
-########################################
-echo "➡️ Installation dépendances"
-########################################
+echo "➡️ Installation des dépendances système"
 sudo apt install -y \
   python3 python3-pip python3-pil python3-numpy \
   curl git unzip iw \
@@ -50,8 +56,10 @@ sudo apt install -y \
   squeezelite shairport-sync
 
 ########################################
-echo "➡️ Activation SPI et I2C"
+# ACTIVATION SPI / I2C
 ########################################
+
+echo "➡️ Activation SPI et I²C"
 
 if ! grep -q "^dtparam=spi=on" "$CONFIG_FILE"; then
   echo "dtparam=spi=on" | sudo tee -a "$CONFIG_FILE"
@@ -62,15 +70,21 @@ if ! grep -q "^dtparam=i2c_arm=on" "$CONFIG_FILE"; then
 fi
 
 ########################################
-echo "➡️ Activation DAC I2S"
+# ACTIVATION DAC I2S
 ########################################
+
+echo "➡️ Activation DAC I2S (HifiBerry compatible)"
+
 if ! grep -q "^dtoverlay=hifiberry-dac" "$CONFIG_FILE"; then
   echo "dtoverlay=hifiberry-dac" | sudo tee -a "$CONFIG_FILE"
 fi
 
 ########################################
-echo "➡️ Désactivation Wi-Fi power save"
+# WIFI POWER SAVE OFF
 ########################################
+
+echo "➡️ Désactivation Wi-Fi power save"
+
 sudo tee /etc/systemd/system/wifi-powersave-off.service > /dev/null <<EOF
 [Unit]
 Description=Disable WiFi Power Save
@@ -90,14 +104,18 @@ sudo systemctl enable wifi-powersave-off
 sudo systemctl start wifi-powersave-off
 
 ########################################
-echo "➡️ Librairies Python écran / GPIO"
+# LIBRAIRIES PYTHON ÉCRAN
 ########################################
+
+echo "➡️ Installation librairies Python écran"
 pip3 install --break-system-packages \
   st7789 gpiodevice requests pillow
 
 ########################################
-echo "➡️ Téléchargement des images depuis GitHub"
+# IMAGES (GITHUB)
 ########################################
+
+echo "➡️ Téléchargement des images"
 mkdir -p "$IMG_DIR"
 
 download_image() {
@@ -105,7 +123,7 @@ download_image() {
   local url="$IMG_BASE_URL/$name"
   local dest="$IMG_DIR/$name"
 
-  echo "📥 Téléchargement $name"
+  echo "📥 $name"
   if ! curl -fsSL "$url" -o "$dest"; then
     echo "⚠️ Impossible de télécharger $name (continuation)"
   fi
@@ -116,8 +134,11 @@ download_image "idle.png"
 download_image "airplay.png"
 
 ########################################
-echo "➡️ Configuration AirPlay"
+# AIRPLAY (SHAIRPORT-SYNC)
 ########################################
+
+echo "➡️ Configuration AirPlay"
+
 sudo tee /etc/shairport-sync.conf > /dev/null <<EOF
 general =
 {
@@ -139,13 +160,18 @@ Wants=network-online.target
 EOF
 
 ########################################
-echo "➡️ Activation Squeezelite"
+# SQUEEZELITE
 ########################################
+
+echo "➡️ Activation Squeezelite"
 sudo systemctl enable squeezelite
 
 ########################################
-echo "➡️ Création du script écran pirate_display.py"
+# SCRIPT ÉCRAN pirate_display.py
 ########################################
+
+echo "➡️ Création pirate_display.py"
+
 cat > "$HOME/pirate_display.py" <<EOF
 #!/usr/bin/env python3
 import time, os, requests
@@ -178,52 +204,48 @@ disp = st7789.ST7789(
 )
 disp.begin()
 
-def get_state(entity):
-    r = requests.get(
-        f"{HA_URL}/api/states/{entity}",
-        headers=HEADERS,
-        timeout=5
-    )
+def get_state(e):
+    r = requests.get(f"{HA_URL}/api/states/{e}", headers=HEADERS, timeout=5)
     r.raise_for_status()
     return r.json()
 
-def show_image(path, brightness):
+def show(path, b):
     img = Image.open(path).resize((240,240)).convert("RGB")
-    img = ImageEnhance.Brightness(img).enhance(max(0.05, brightness/100))
+    img = ImageEnhance.Brightness(img).enhance(max(0.05, b/100))
     disp.display(img)
 
 last = None
 
 while True:
     try:
-        brightness = int(float(get_state(BRIGHT)["state"]))
+        b = int(float(get_state(BRIGHT)["state"]))
     except:
-        brightness = 100
+        b = 100
 
     if os.path.exists(FLAG):
         if last != "airplay":
-            show_image(AIRPLAY, brightness)
+            show(AIRPLAY, b)
             last = "airplay"
         time.sleep(1)
         continue
 
     try:
-        player = get_state(PLAYER)
-        if player["state"] != "playing":
+        p = get_state(PLAYER)
+        if p["state"] != "playing":
             if last != "idle":
-                show_image(IDLE, brightness)
+                show(IDLE, b)
                 last = "idle"
         else:
-            pic = player["attributes"].get("entity_picture")
+            pic = p["attributes"].get("entity_picture")
             if pic:
                 url = pic if pic.startswith("http") else HA_URL + pic
                 data = requests.get(url, headers=HEADERS, timeout=5).content
                 img = Image.open(BytesIO(data)).resize((240,240))
-                img = ImageEnhance.Brightness(img).enhance(brightness/100)
+                img = ImageEnhance.Brightness(img).enhance(b/100)
                 disp.display(img)
                 last = "cover"
     except:
-        show_image(BOOT, brightness)
+        show(BOOT, b)
         last = "boot"
 
     time.sleep(1)
@@ -232,8 +254,11 @@ EOF
 chmod +x "$HOME/pirate_display.py"
 
 ########################################
-echo "➡️ Service écran systemd"
+# SERVICE ÉCRAN
 ########################################
+
+echo "➡️ Service pirate-display"
+
 sudo tee /etc/systemd/system/pirate-display.service > /dev/null <<EOF
 [Unit]
 Description=Pirate Audio Display
@@ -251,16 +276,17 @@ WantedBy=multi-user.target
 EOF
 
 ########################################
-echo "➡️ Finalisation des services"
+# FINALISATION
 ########################################
+
+echo "➡️ Activation des services"
 sudo systemctl daemon-reload
 sudo systemctl enable pirate-display
 sudo systemctl enable shairport-sync
 sudo systemctl start pirate-display
 sudo systemctl start shairport-sync
 
-########################################
 echo
 echo "✅ INSTALLATION TERMINÉE"
-echo "➡️ Redémarrage requis"
+echo "➡️ REDÉMARRAGE OBLIGATOIRE"
 echo
