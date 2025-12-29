@@ -2,7 +2,7 @@
 set -e
 
 ########################################
-# SYSTEM UPDATE (BEFORE ANYTHING)
+# SYSTEM UPDATE (FIRST)
 ########################################
 
 echo "[*] System update"
@@ -37,16 +37,14 @@ if [[ "$TOKEN_LEN" -lt 150 ]]; then
   exit 1
 fi
 
-echo "[OK] Token received: $TOKEN_LEN chars ...$TOKEN_TAIL"
-echo
+echo "[OK] Token received ($TOKEN_LEN chars ...$TOKEN_TAIL)"
 
-echo "[*] Validating Home Assistant API access"
+echo "[*] Validating Home Assistant API"
 if ! curl -fsSL -H "Authorization: Bearer $HA_TOKEN" "$HA_URL/api/" >/dev/null; then
   echo "[ERROR] Home Assistant unreachable or invalid token"
   exit 1
 fi
-echo "[OK] Home Assistant connection validated"
-echo
+echo "[OK] Home Assistant validated"
 
 ########################################
 # VARIABLES
@@ -55,7 +53,6 @@ echo
 USER="raspberry"
 HOME="/home/$USER"
 IMG_DIR="$HOME/images"
-PLAYER_NAME="PirateAudio"
 CONFIG_FILE="/boot/firmware/config.txt"
 
 GITHUB_USER="jmb-dmx"
@@ -67,7 +64,7 @@ IMG_BASE_URL="https://raw.githubusercontent.com/$GITHUB_USER/$GITHUB_REPO/$GITHU
 # HOSTNAME
 ########################################
 
-echo "[*] Setting hostname to PirateAudio"
+echo "[*] Setting hostname PirateAudio"
 sudo hostnamectl set-hostname PirateAudio
 sudo sed -i 's/127.0.1.1.*/127.0.1.1\tPirateAudio/' /etc/hosts
 
@@ -75,7 +72,7 @@ sudo sed -i 's/127.0.1.1.*/127.0.1.1\tPirateAudio/' /etc/hosts
 # DEPENDENCIES
 ########################################
 
-echo "[*] Installing system dependencies"
+echo "[*] Installing dependencies"
 sudo apt install -y \
   python3 python3-pip python3-pil python3-numpy \
   curl git iw unzip \
@@ -83,45 +80,21 @@ sudo apt install -y \
   squeezelite shairport-sync
 
 ########################################
-# SPI / I2C / DAC
+# ENABLE SPI / I2C / DAC
 ########################################
 
-echo "[*] Enabling SPI, I2C and I2S DAC"
+echo "[*] Enabling SPI / I2C / I2S DAC"
 
 grep -q "^dtparam=spi=on" "$CONFIG_FILE" || echo "dtparam=spi=on" | sudo tee -a "$CONFIG_FILE"
 grep -q "^dtparam=i2c_arm=on" "$CONFIG_FILE" || echo "dtparam=i2c_arm=on" | sudo tee -a "$CONFIG_FILE"
 grep -q "^dtoverlay=hifiberry-dac" "$CONFIG_FILE" || echo "dtoverlay=hifiberry-dac" | sudo tee -a "$CONFIG_FILE"
 
 ########################################
-# WIFI POWER SAVE OFF
-########################################
-
-echo "[*] Disabling WiFi power save"
-
-sudo tee /etc/systemd/system/wifi-powersave-off.service > /dev/null <<EOF
-[Unit]
-Description=Disable WiFi Power Save
-After=network.target
-
-[Service]
-Type=oneshot
-ExecStart=/sbin/iw dev wlan0 set power_save off
-RemainAfterExit=yes
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-sudo systemctl daemon-reload
-sudo systemctl enable wifi-powersave-off
-sudo systemctl start wifi-powersave-off
-
-########################################
 # PYTHON LIBRARIES
 ########################################
 
 echo "[*] Installing Python libraries"
-pip3 install --break-system-packages st7789 gpiodevice requests pillow
+pip3 install --break-system-packages st7789 requests pillow
 
 ########################################
 # IMAGES
@@ -131,18 +104,17 @@ echo "[*] Downloading images"
 mkdir -p "$IMG_DIR"
 
 for img in boot.png idle.png airplay.png; do
-  echo "    - $img"
-  curl -fsSL "$IMG_BASE_URL/$img" -o "$IMG_DIR/$img" || echo "      [WARN] $img not downloaded"
+  curl -fsSL "$IMG_BASE_URL/$img" -o "$IMG_DIR/$img" || echo "[WARN] $img missing"
 done
 
 ########################################
-# AIRPLAY
+# AIRPLAY CONFIG
 ########################################
 
 echo "[*] Configuring AirPlay"
 
 sudo tee /etc/shairport-sync.conf > /dev/null <<EOF
-general = { name = "$PLAYER_NAME"; };
+general = { name = "PirateAudio"; };
 
 alsa = {
   output_device = "hw:CARD=sndrpihifiberry";
@@ -150,22 +122,8 @@ alsa = {
 };
 EOF
 
-sudo mkdir -p /etc/systemd/system/shairport-sync.service.d
-sudo tee /etc/systemd/system/shairport-sync.service.d/override.conf > /dev/null <<EOF
-[Unit]
-After=network-online.target squeezelite.service
-Wants=network-online.target
-EOF
-
 ########################################
-# SQUEEZELITE
-########################################
-
-echo "[*] Enabling squeezelite"
-sudo systemctl enable squeezelite
-
-########################################
-# DISPLAY SCRIPT
+# DISPLAY SCRIPT (FINAL INIT)
 ########################################
 
 echo "[*] Creating pirate_display.py"
@@ -190,20 +148,22 @@ AIR=f"{IMG}/airplay.png"
 
 HEADERS={"Authorization":f"Bearer {TOKEN}"}
 
-time.sleep(0.5)
-
+# --- ST7789 INIT (VALIDATED) ---
 disp = st7789.ST7789(
     port=0,
     cs=1,
     dc=9,
     backlight=13,
+    spi_speed_hz=80_000_000,
     width=240,
     height=240,
-    rotation=90,
-    spi_speed_hz=80000000,
-    invert=True
+    rotation=90
 )
+
 disp.begin()
+disp.set_backlight(1)
+time.sleep(0.1)
+# --------------------------------
 
 def ha(e):
     r = requests.get(f"{HA_URL}/api/states/{e}", headers=HEADERS, timeout=5)
@@ -221,6 +181,7 @@ while True:
         b = int(float(ha(BRIGHT)["state"]))
     except:
         b = 100
+
     try:
         p = ha(PLAYER)
         if p["state"] == "playing":
@@ -240,13 +201,14 @@ while True:
         if last != "boot":
             show(BOOT, b)
             last = "boot"
+
     time.sleep(1)
 EOF
 
 chmod +x "$HOME/pirate_display.py"
 
 ########################################
-# DISPLAY SERVICE (WAIT FOR SPI)
+# SYSTEMD SERVICE
 ########################################
 
 echo "[*] Creating pirate-display.service"
@@ -258,10 +220,9 @@ After=network-online.target squeezelite.service shairport-sync.service
 Wants=network-online.target
 
 [Service]
-User=$USER
+User=raspberry
 ExecStartPre=/usr/bin/bash -c 'until [ -e /dev/spidev0.0 ]; do sleep 0.2; done'
-ExecStartPre=/bin/sleep 1
-ExecStart=/usr/bin/python3 $HOME/pirate_display.py
+ExecStart=/usr/bin/python3 /home/raspberry/pirate_display.py
 Restart=always
 RestartSec=2
 
@@ -270,7 +231,7 @@ WantedBy=multi-user.target
 EOF
 
 ########################################
-# FINALIZATION
+# ENABLE SERVICES
 ########################################
 
 echo "[*] Enabling services"
