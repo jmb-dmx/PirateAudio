@@ -29,32 +29,22 @@ if [[ -z "$HA_URL" || -z "$HA_TOKEN" ]]; then
   exit 1
 fi
 
-# Vérification basique du token
 TOKEN_LEN=${#HA_TOKEN}
 TOKEN_TAIL="${HA_TOKEN: -4}"
 
 if [[ "$TOKEN_LEN" -lt 150 ]]; then
   echo "❌ Token trop court ($TOKEN_LEN caractères)"
-  echo "👉 Probable erreur de copier-coller"
   exit 1
 fi
 
 echo "✅ Token reçu : $TOKEN_LEN caractères — se termine par …$TOKEN_TAIL"
 echo
 
-########################################
-# VALIDATION API HOME ASSISTANT
-########################################
-
 echo "🔍 Validation du token Home Assistant…"
-
-if ! curl -fsSL \
-  -H "Authorization: Bearer $HA_TOKEN" \
-  "$HA_URL/api/" >/dev/null; then
-  echo "❌ Impossible de valider le token (URL ou token invalide)"
+if ! curl -fsSL -H "Authorization: Bearer $HA_TOKEN" "$HA_URL/api/" >/dev/null; then
+  echo "❌ Impossible de valider le token HA"
   exit 1
 fi
-
 echo "✅ Connexion Home Assistant validée"
 echo
 
@@ -66,7 +56,6 @@ USER="raspberry"
 HOME="/home/$USER"
 IMG_DIR="$HOME/images"
 PLAYER_NAME="PirateAudio"
-
 CONFIG_FILE="/boot/firmware/config.txt"
 
 GITHUB_USER="jmb-dmx"
@@ -75,10 +64,18 @@ GITHUB_BRANCH="main"
 IMG_BASE_URL="https://raw.githubusercontent.com/$GITHUB_USER/$GITHUB_REPO/$GITHUB_BRANCH/images"
 
 ########################################
+# HOSTNAME
+########################################
+
+echo "➡️ Configuration du nom réseau : PirateAudio"
+sudo hostnamectl set-hostname PirateAudio
+sudo sed -i 's/127.0.1.1.*/127.0.1.1\tPirateAudio/' /etc/hosts
+
+########################################
 # INSTALLATION DÉPENDANCES
 ########################################
 
-echo "➡️ Installation des dépendances système"
+echo "➡️ Installation des dépendances"
 sudo apt install -y \
   python3 python3-pip python3-pil python3-numpy \
   curl git unzip iw \
@@ -91,23 +88,15 @@ sudo apt install -y \
 
 echo "➡️ Activation SPI et I²C"
 
-if ! grep -q "^dtparam=spi=on" "$CONFIG_FILE"; then
-  echo "dtparam=spi=on" | sudo tee -a "$CONFIG_FILE"
-fi
-
-if ! grep -q "^dtparam=i2c_arm=on" "$CONFIG_FILE"; then
-  echo "dtparam=i2c_arm=on" | sudo tee -a "$CONFIG_FILE"
-fi
+grep -q "^dtparam=spi=on" "$CONFIG_FILE" || echo "dtparam=spi=on" | sudo tee -a "$CONFIG_FILE"
+grep -q "^dtparam=i2c_arm=on" "$CONFIG_FILE" || echo "dtparam=i2c_arm=on" | sudo tee -a "$CONFIG_FILE"
 
 ########################################
 # ACTIVATION DAC I2S
 ########################################
 
 echo "➡️ Activation DAC I2S"
-
-if ! grep -q "^dtoverlay=hifiberry-dac" "$CONFIG_FILE"; then
-  echo "dtoverlay=hifiberry-dac" | sudo tee -a "$CONFIG_FILE"
-fi
+grep -q "^dtoverlay=hifiberry-dac" "$CONFIG_FILE" || echo "dtoverlay=hifiberry-dac" | sudo tee -a "$CONFIG_FILE"
 
 ########################################
 # WIFI POWER SAVE OFF
@@ -134,49 +123,34 @@ sudo systemctl enable wifi-powersave-off
 sudo systemctl start wifi-powersave-off
 
 ########################################
-# LIBRAIRIES PYTHON
+# PYTHON LIBS
 ########################################
 
 echo "➡️ Installation librairies Python"
-pip3 install --break-system-packages \
-  st7789 gpiodevice requests pillow
+pip3 install --break-system-packages st7789 gpiodevice requests pillow
 
 ########################################
-# IMAGES (GITHUB)
+# IMAGES
 ########################################
 
 echo "➡️ Téléchargement des images"
 mkdir -p "$IMG_DIR"
 
-download_image() {
-  local name="$1"
-  local url="$IMG_BASE_URL/$name"
-  local dest="$IMG_DIR/$name"
-
-  echo "📥 $name"
-  if ! curl -fsSL "$url" -o "$dest"; then
-    echo "⚠️ Impossible de télécharger $name (continuation)"
-  fi
-}
-
-download_image "boot.png"
-download_image "idle.png"
-download_image "airplay.png"
+for img in boot.png idle.png airplay.png; do
+  echo "📥 $img"
+  curl -fsSL "$IMG_BASE_URL/$img" -o "$IMG_DIR/$img" || echo "⚠️ $img indisponible"
+done
 
 ########################################
-# AIRPLAY (SHAIRPORT-SYNC)
+# AIRPLAY
 ########################################
 
 echo "➡️ Configuration AirPlay"
 
 sudo tee /etc/shairport-sync.conf > /dev/null <<EOF
-general =
-{
-  name = "$PLAYER_NAME";
-};
+general = { name = "$PLAYER_NAME"; };
 
-alsa =
-{
+alsa = {
   output_device = "hw:CARD=sndrpihifiberry";
   mixer_control_name = "none";
 };
@@ -193,11 +167,10 @@ EOF
 # SQUEEZELITE
 ########################################
 
-echo "➡️ Activation Squeezelite"
 sudo systemctl enable squeezelite
 
 ########################################
-# SCRIPT ÉCRAN pirate_display.py
+# SCRIPT ÉCRAN
 ########################################
 
 echo "➡️ Création pirate_display.py"
@@ -215,76 +188,59 @@ TOKEN="$HA_TOKEN"
 PLAYER="media_player.pirate_audio"
 BRIGHT="input_number.pirate_brightness"
 
-IMG_DIR="$IMG_DIR"
-BOOT=f"{IMG_DIR}/boot.png"
-IDLE=f"{IMG_DIR}/idle.png"
-AIRPLAY=f"{IMG_DIR}/airplay.png"
-FLAG="/tmp/airplay_active"
+IMG="$IMG_DIR"
+BOOT=f"{IMG}/boot.png"
+IDLE=f"{IMG}/idle.png"
+AIR=f"{IMG}/airplay.png"
 
 HEADERS={"Authorization":f"Bearer {TOKEN}"}
 
-disp = st7789.ST7789(
-    port=0,
-    cs=1,
-    dc=9,
-    backlight=13,
-    width=240,
-    height=240,
-    rotation=90
+disp=st7789.ST7789(
+    port=0, cs=1, dc=9, backlight=13,
+    width=240, height=240, rotation=90
 )
 disp.begin()
 
-def get_state(e):
-    r = requests.get(f"{HA_URL}/api/states/{e}", headers=HEADERS, timeout=5)
+def ha(e):
+    r=requests.get(f"{HA_URL}/api/states/{e}",headers=HEADERS,timeout=5)
     r.raise_for_status()
     return r.json()
 
-def show(path, b):
-    img = Image.open(path).resize((240,240)).convert("RGB")
-    img = ImageEnhance.Brightness(img).enhance(max(0.05, b/100))
-    disp.display(img)
+def show(p,b):
+    i=Image.open(p).resize((240,240))
+    i=ImageEnhance.Brightness(i).enhance(max(0.05,b/100))
+    disp.display(i)
 
-last = None
-
+last=None
 while True:
     try:
-        b = int(float(get_state(BRIGHT)["state"]))
+        b=int(float(ha(BRIGHT)["state"]))
     except:
-        b = 100
-
-    if os.path.exists(FLAG):
-        if last != "airplay":
-            show(AIRPLAY, b)
-            last = "airplay"
-        time.sleep(1)
-        continue
-
+        b=100
     try:
-        p = get_state(PLAYER)
-        if p["state"] != "playing":
-            if last != "idle":
-                show(IDLE, b)
-                last = "idle"
-        else:
-            pic = p["attributes"].get("entity_picture")
+        p=ha(PLAYER)
+        if p["state"]=="playing":
+            pic=p["attributes"].get("entity_picture")
             if pic:
-                url = pic if pic.startswith("http") else HA_URL + pic
-                data = requests.get(url, headers=HEADERS, timeout=5).content
-                img = Image.open(BytesIO(data)).resize((240,240))
-                img = ImageEnhance.Brightness(img).enhance(b/100)
-                disp.display(img)
-                last = "cover"
+                u=pic if pic.startswith("http") else HA_URL+pic
+                d=requests.get(u,headers=HEADERS,timeout=5).content
+                i=Image.open(BytesIO(d)).resize((240,240))
+                i=ImageEnhance.Brightness(i).enhance(b/100)
+                disp.display(i)
+                last="play"
+        else:
+            if last!="idle":
+                show(IDLE,b); last="idle"
     except:
-        show(BOOT, b)
-        last = "boot"
-
+        if last!="boot":
+            show(BOOT,b); last="boot"
     time.sleep(1)
 EOF
 
 chmod +x "$HOME/pirate_display.py"
 
 ########################################
-# SERVICE ÉCRAN
+# SERVICE ÉCRAN (ATTENTE ACTIVE HA)
 ########################################
 
 echo "➡️ Service pirate-display"
@@ -293,10 +249,12 @@ sudo tee /etc/systemd/system/pirate-display.service > /dev/null <<EOF
 [Unit]
 Description=Pirate Audio Display
 After=network-online.target squeezelite.service shairport-sync.service
+Wants=network-online.target
 
 [Service]
 User=$USER
-ExecStartPre=/bin/sleep 5
+ExecStartPre=/bin/sleep 10
+ExecStartPre=/usr/bin/bash -c 'until curl -fsSL -H "Authorization: Bearer $HA_TOKEN" $HA_URL/api/states/media_player.pirate_audio >/dev/null; do sleep 2; done'
 ExecStart=/usr/bin/python3 $HOME/pirate_display.py
 Restart=always
 RestartSec=2
@@ -309,7 +267,6 @@ EOF
 # FINALISATION
 ########################################
 
-echo "➡️ Activation des services"
 sudo systemctl daemon-reload
 sudo systemctl enable pirate-display
 sudo systemctl enable shairport-sync
