@@ -2,30 +2,30 @@
 set -e
 
 ########################################
-# MISE À JOUR SYSTÈME (AVANT TOUT)
+# SYSTEM UPDATE (BEFORE ANYTHING)
 ########################################
 
-echo "🔄 Mise à jour du système (obligatoire)"
+echo "[*] System update"
 sudo apt update
 sudo apt upgrade -y
 
 ########################################
-# CONFIG INTERACTIVE (TTY SAFE)
+# INTERACTIVE CONFIG (TTY SAFE)
 ########################################
 
 echo
-echo "🏴‍☠️ Pirate Audio – Configuration Home Assistant"
+echo "[*] PirateAudio - Home Assistant configuration"
 echo
 
-read -rp "Adresse Home Assistant (ex: http://192.168.1.161:8123) : " HA_URL </dev/tty
+read -rp "Home Assistant URL (ex: http://192.168.1.161:8123) : " HA_URL </dev/tty
 echo
 
-read -rsp "Token Home Assistant (entrée masquée, collez puis ENTER) : " HA_TOKEN </dev/tty
+read -rsp "Home Assistant token (paste then ENTER) : " HA_TOKEN </dev/tty
 echo
 echo
 
 if [[ -z "$HA_URL" || -z "$HA_TOKEN" ]]; then
-  echo "❌ HA_URL ou HA_TOKEN vide — arrêt"
+  echo "[ERROR] HA_URL or HA_TOKEN empty"
   exit 1
 fi
 
@@ -33,19 +33,19 @@ TOKEN_LEN=${#HA_TOKEN}
 TOKEN_TAIL="${HA_TOKEN: -4}"
 
 if [[ "$TOKEN_LEN" -lt 150 ]]; then
-  echo "❌ Token trop court ($TOKEN_LEN caractères)"
+  echo "[ERROR] Token too short ($TOKEN_LEN chars)"
   exit 1
 fi
 
-echo "✅ Token reçu : $TOKEN_LEN caractères — se termine par …$TOKEN_TAIL"
+echo "[OK] Token received: $TOKEN_LEN chars ...$TOKEN_TAIL"
 echo
 
-echo "🔍 Validation du token Home Assistant…"
+echo "[*] Validating Home Assistant API access"
 if ! curl -fsSL -H "Authorization: Bearer $HA_TOKEN" "$HA_URL/api/" >/dev/null; then
-  echo "❌ Impossible de valider le token HA"
+  echo "[ERROR] Home Assistant unreachable or invalid token"
   exit 1
 fi
-echo "✅ Connexion Home Assistant validée"
+echo "[OK] Home Assistant connection validated"
 echo
 
 ########################################
@@ -67,42 +67,36 @@ IMG_BASE_URL="https://raw.githubusercontent.com/$GITHUB_USER/$GITHUB_REPO/$GITHU
 # HOSTNAME
 ########################################
 
-echo "➡️ Configuration du nom réseau : PirateAudio"
+echo "[*] Setting hostname to PirateAudio"
 sudo hostnamectl set-hostname PirateAudio
 sudo sed -i 's/127.0.1.1.*/127.0.1.1\tPirateAudio/' /etc/hosts
 
 ########################################
-# INSTALLATION DÉPENDANCES
+# DEPENDENCIES
 ########################################
 
-echo "➡️ Installation des dépendances"
+echo "[*] Installing system dependencies"
 sudo apt install -y \
   python3 python3-pip python3-pil python3-numpy \
-  curl git unzip iw \
+  curl git iw unzip \
   alsa-utils \
   squeezelite shairport-sync
 
 ########################################
-# ACTIVATION SPI / I2C
+# SPI / I2C / DAC
 ########################################
 
-echo "➡️ Activation SPI et I²C"
+echo "[*] Enabling SPI, I2C and I2S DAC"
 
 grep -q "^dtparam=spi=on" "$CONFIG_FILE" || echo "dtparam=spi=on" | sudo tee -a "$CONFIG_FILE"
 grep -q "^dtparam=i2c_arm=on" "$CONFIG_FILE" || echo "dtparam=i2c_arm=on" | sudo tee -a "$CONFIG_FILE"
-
-########################################
-# ACTIVATION DAC I2S
-########################################
-
-echo "➡️ Activation DAC I2S"
 grep -q "^dtoverlay=hifiberry-dac" "$CONFIG_FILE" || echo "dtoverlay=hifiberry-dac" | sudo tee -a "$CONFIG_FILE"
 
 ########################################
 # WIFI POWER SAVE OFF
 ########################################
 
-echo "➡️ Désactivation Wi-Fi power save"
+echo "[*] Disabling WiFi power save"
 
 sudo tee /etc/systemd/system/wifi-powersave-off.service > /dev/null <<EOF
 [Unit]
@@ -123,29 +117,29 @@ sudo systemctl enable wifi-powersave-off
 sudo systemctl start wifi-powersave-off
 
 ########################################
-# PYTHON LIBS (PIMORONI)
+# PYTHON LIBRARIES
 ########################################
 
-echo "➡️ Installation librairies Python écran"
+echo "[*] Installing Python libraries"
 pip3 install --break-system-packages st7789 gpiodevice requests pillow
 
 ########################################
 # IMAGES
 ########################################
 
-echo "➡️ Téléchargement des images"
+echo "[*] Downloading images"
 mkdir -p "$IMG_DIR"
 
 for img in boot.png idle.png airplay.png; do
-  echo "📥 $img"
-  curl -fsSL "$IMG_BASE_URL/$img" -o "$IMG_DIR/$img" || echo "⚠️ $img indisponible"
+  echo "    - $img"
+  curl -fsSL "$IMG_BASE_URL/$img" -o "$IMG_DIR/$img" || echo "      [WARN] $img not downloaded"
 done
 
 ########################################
 # AIRPLAY
 ########################################
 
-echo "➡️ Configuration AirPlay"
+echo "[*] Configuring AirPlay"
 
 sudo tee /etc/shairport-sync.conf > /dev/null <<EOF
 general = { name = "$PLAYER_NAME"; };
@@ -167,13 +161,14 @@ EOF
 # SQUEEZELITE
 ########################################
 
+echo "[*] Enabling squeezelite"
 sudo systemctl enable squeezelite
 
 ########################################
-# SCRIPT ÉCRAN (ST7789 FIX)
+# DISPLAY SCRIPT
 ########################################
 
-echo "➡️ Création pirate_display.py"
+echo "[*] Creating pirate_display.py"
 
 cat > "$HOME/pirate_display.py" <<EOF
 #!/usr/bin/env python3
@@ -195,6 +190,8 @@ AIR=f"{IMG}/airplay.png"
 
 HEADERS={"Authorization":f"Bearer {TOKEN}"}
 
+time.sleep(0.5)
+
 disp = st7789.ST7789(
     port=0,
     cs=1,
@@ -203,56 +200,56 @@ disp = st7789.ST7789(
     width=240,
     height=240,
     rotation=90,
-    spi_speed_hz=80_000_000,
-    offset_left=0,
-    offset_top=0,
+    spi_speed_hz=80000000,
     invert=True
 )
 disp.begin()
 
 def ha(e):
-    r=requests.get(f"{HA_URL}/api/states/{e}",headers=HEADERS,timeout=5)
+    r = requests.get(f"{HA_URL}/api/states/{e}", headers=HEADERS, timeout=5)
     r.raise_for_status()
     return r.json()
 
-def show(p,b):
-    i=Image.open(p).resize((240,240))
-    i=ImageEnhance.Brightness(i).enhance(max(0.05,b/100))
+def show(p, b):
+    i = Image.open(p).resize((240,240))
+    i = ImageEnhance.Brightness(i).enhance(max(0.05, b/100))
     disp.display(i)
 
-last=None
+last = None
 while True:
     try:
-        b=int(float(ha(BRIGHT)["state"]))
+        b = int(float(ha(BRIGHT)["state"]))
     except:
-        b=100
+        b = 100
     try:
-        p=ha(PLAYER)
-        if p["state"]=="playing":
-            pic=p["attributes"].get("entity_picture")
+        p = ha(PLAYER)
+        if p["state"] == "playing":
+            pic = p["attributes"].get("entity_picture")
             if pic:
-                u=pic if pic.startswith("http") else HA_URL+pic
-                d=requests.get(u,headers=HEADERS,timeout=5).content
-                i=Image.open(BytesIO(d)).resize((240,240))
-                i=ImageEnhance.Brightness(i).enhance(b/100)
+                u = pic if pic.startswith("http") else HA_URL + pic
+                d = requests.get(u, headers=HEADERS, timeout=5).content
+                i = Image.open(BytesIO(d)).resize((240,240))
+                i = ImageEnhance.Brightness(i).enhance(b/100)
                 disp.display(i)
-                last="play"
+                last = "play"
         else:
-            if last!="idle":
-                show(IDLE,b); last="idle"
+            if last != "idle":
+                show(IDLE, b)
+                last = "idle"
     except:
-        if last!="boot":
-            show(BOOT,b); last="boot"
+        if last != "boot":
+            show(BOOT, b)
+            last = "boot"
     time.sleep(1)
 EOF
 
 chmod +x "$HOME/pirate_display.py"
 
 ########################################
-# SERVICE ÉCRAN
+# DISPLAY SERVICE (WAIT FOR SPI)
 ########################################
 
-echo "➡️ Service pirate-display"
+echo "[*] Creating pirate-display.service"
 
 sudo tee /etc/systemd/system/pirate-display.service > /dev/null <<EOF
 [Unit]
@@ -262,7 +259,8 @@ Wants=network-online.target
 
 [Service]
 User=$USER
-ExecStartPre=/bin/sleep 10
+ExecStartPre=/usr/bin/bash -c 'until [ -e /dev/spidev0.0 ]; do sleep 0.2; done'
+ExecStartPre=/bin/sleep 1
 ExecStart=/usr/bin/python3 $HOME/pirate_display.py
 Restart=always
 RestartSec=2
@@ -272,9 +270,10 @@ WantedBy=multi-user.target
 EOF
 
 ########################################
-# FINALISATION
+# FINALIZATION
 ########################################
 
+echo "[*] Enabling services"
 sudo systemctl daemon-reload
 sudo systemctl enable pirate-display
 sudo systemctl enable shairport-sync
@@ -282,6 +281,6 @@ sudo systemctl start pirate-display
 sudo systemctl start shairport-sync
 
 echo
-echo "✅ INSTALLATION TERMINÉE"
-echo "➡️ REDÉMARRAGE OBLIGATOIRE"
+echo "[OK] Installation complete"
+echo "[INFO] Reboot required"
 echo
