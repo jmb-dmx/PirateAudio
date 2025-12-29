@@ -5,21 +5,21 @@ set -e
 # MISE À JOUR SYSTÈME (AVANT TOUT)
 ########################################
 
-echo "🔄 Mise à jour complète du système (obligatoire)"
+echo "🔄 Mise à jour du système (obligatoire)"
 sudo apt update
 sudo apt upgrade -y
 
 ########################################
-# CONFIG INTERACTIVE
+# CONFIG INTERACTIVE (TTY SAFE)
 ########################################
 
 echo
-echo "🏴‍☠️ Pirate Audio – Installation automatique"
+echo "🏴‍☠️ Pirate Audio – Configuration Home Assistant"
 echo
 
-read -rp "Adresse Home Assistant (ex: http://192.168.1.161:8123) : " HA_URL
+read -rp "Adresse Home Assistant (ex: http://192.168.1.161:8123) : " HA_URL </dev/tty
 echo
-read -rsp "Token Home Assistant (entrée masquée) : " HA_TOKEN
+read -rsp "Token Home Assistant (entrée masquée) : " HA_TOKEN </dev/tty
 echo
 echo
 
@@ -73,7 +73,7 @@ fi
 # ACTIVATION DAC I2S
 ########################################
 
-echo "➡️ Activation DAC I2S (HifiBerry compatible)"
+echo "➡️ Activation DAC I2S"
 
 if ! grep -q "^dtoverlay=hifiberry-dac" "$CONFIG_FILE"; then
   echo "dtoverlay=hifiberry-dac" | sudo tee -a "$CONFIG_FILE"
@@ -104,10 +104,10 @@ sudo systemctl enable wifi-powersave-off
 sudo systemctl start wifi-powersave-off
 
 ########################################
-# LIBRAIRIES PYTHON ÉCRAN
+# LIBRAIRIES PYTHON
 ########################################
 
-echo "➡️ Installation librairies Python écran"
+echo "➡️ Installation librairies Python"
 pip3 install --break-system-packages \
   st7789 gpiodevice requests pillow
 
