@@ -19,7 +19,8 @@ echo
 
 read -rp "Adresse Home Assistant (ex: http://192.168.1.161:8123) : " HA_URL </dev/tty
 echo
-read -rsp "Token Home Assistant (entrée masquée) : " HA_TOKEN </dev/tty
+
+read -rsp "Token Home Assistant (entrée masquée, collez puis ENTER) : " HA_TOKEN </dev/tty
 echo
 echo
 
@@ -27,6 +28,35 @@ if [[ -z "$HA_URL" || -z "$HA_TOKEN" ]]; then
   echo "❌ HA_URL ou HA_TOKEN vide — arrêt"
   exit 1
 fi
+
+# Vérification basique du token
+TOKEN_LEN=${#HA_TOKEN}
+TOKEN_TAIL="${HA_TOKEN: -4}"
+
+if [[ "$TOKEN_LEN" -lt 150 ]]; then
+  echo "❌ Token trop court ($TOKEN_LEN caractères)"
+  echo "👉 Probable erreur de copier-coller"
+  exit 1
+fi
+
+echo "✅ Token reçu : $TOKEN_LEN caractères — se termine par …$TOKEN_TAIL"
+echo
+
+########################################
+# VALIDATION API HOME ASSISTANT
+########################################
+
+echo "🔍 Validation du token Home Assistant…"
+
+if ! curl -fsSL \
+  -H "Authorization: Bearer $HA_TOKEN" \
+  "$HA_URL/api/" >/dev/null; then
+  echo "❌ Impossible de valider le token (URL ou token invalide)"
+  exit 1
+fi
+
+echo "✅ Connexion Home Assistant validée"
+echo
 
 ########################################
 # VARIABLES
