@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import logging
 import os
 import time
 import requests
@@ -6,11 +7,19 @@ from io import BytesIO
 from PIL import Image, ImageEnhance
 import st7789
 
+# Configure logging
+log_file = os.path.join(os.path.expanduser("~"), "display.log")
+logging.basicConfig(
+    filename=log_file,
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s:%(message)s",
+)
+
 ########################################
 # LOAD HOME ASSISTANT ENV (SECURE)
 ########################################
 
-ENV_FILE = "/home/raspberry/.pirateaudio.env"
+ENV_FILE = os.path.join(os.path.expanduser("~"), ".pirateaudio.env")
 
 if not os.path.exists(ENV_FILE):
     raise RuntimeError("Missing /home/raspberry/.pirateaudio.env")
@@ -136,7 +145,8 @@ while True:
                 show_cover(pic, brightness)
                 last_mode = "cover"
 
-    except Exception:
+    except Exception as e:
+        logging.error("An error occurred: %s", e)
         # fallback safe
         show_image(BOOT_IMG, 100)
         last_mode = "boot"
