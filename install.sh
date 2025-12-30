@@ -1,15 +1,13 @@
 #!/usr/bin/env bash
 set -e
 
-########################################
-# PIRATE AUDIO - FINAL INSTALLER
-# curl | bash SAFE
-########################################
+############################################
+# PIRATE AUDIO – REPRODUCTION INSTALL SCRIPT
+# Objectif : refaire EXACTEMENT ce qui marche
+############################################
 
 USER="raspberry"
 HOME_DIR="/home/$USER"
-ENV_FILE="$HOME_DIR/.pirateaudio.env"
-IMG_DIR="$HOME_DIR/images"
 BOOTCFG="/boot/firmware/config.txt"
 
 GITHUB_USER="jmb-dmx"
@@ -17,55 +15,20 @@ GITHUB_REPO="PirateAudio"
 GITHUB_BRANCH="main"
 RAW_BASE="https://raw.githubusercontent.com/$GITHUB_USER/$GITHUB_REPO/$GITHUB_BRANCH"
 
-echo "[*] PirateAudio installation"
+echo "=== PirateAudio install (reproduction mode) ==="
 echo
 
-########################################
-# SYSTEM UPDATE
-########################################
-echo "[*] System update"
+############################################
+# 1. SYSTEM UPDATE (COMME À LA MAIN)
+############################################
+echo "[1/14] apt update / upgrade"
 sudo apt update
-sudo apt full-upgrade -y
+sudo apt upgrade -y
 
-########################################
-# ASK HOME ASSISTANT CONFIG
-########################################
-echo
-read -rp "Home Assistant URL (ex: http://192.168.1.161:8123): " HA_URL </dev/tty
-read -rsp "Home Assistant TOKEN (input hidden): " HA_TOKEN </dev/tty
-echo
-echo
-
-if [[ -z "$HA_URL" || -z "$HA_TOKEN" ]]; then
-  echo "[ERROR] URL or TOKEN missing"
-  exit 1
-fi
-
-########################################
-# STORE LOCAL ENV
-########################################
-echo "[*] Storing Home Assistant credentials"
-
-cat > "$ENV_FILE" <<EOF
-HA_URL=$HA_URL
-HA_TOKEN=$HA_TOKEN
-EOF
-
-chmod 600 "$ENV_FILE"
-chown $USER:$USER "$ENV_FILE"
-
-########################################
-# HOSTNAME
-########################################
-echo "[*] Setting hostname to PirateAudio"
-sudo hostnamectl set-hostname PirateAudio
-sudo sed -i 's/^127\.0\.1\.1.*/127.0.1.1\tPirateAudio/' /etc/hosts
-
-########################################
-# DEPENDENCIES
-########################################
-echo "[*] Installing dependencies"
-
+############################################
+# 2. PACKAGES SYSTÈME (COMME À LA MAIN)
+############################################
+echo "[2/14] Installing system packages"
 sudo apt install -y \
   python3 python3-pip \
   python3-pil python3-numpy \
@@ -73,53 +36,75 @@ sudo apt install -y \
   alsa-utils \
   squeezelite shairport-sync
 
-########################################
-# ENABLE SPI / I2C / DAC
-########################################
-echo "[*] Enabling SPI / I2C / I2S DAC"
+############################################
+# 3. SPI / I2C / DAC (COMME À LA MAIN)
+############################################
+echo "[3/14] Enabling SPI / I2C / DAC"
 
 grep -q "^dtparam=spi=on" "$BOOTCFG" || echo "dtparam=spi=on" | sudo tee -a "$BOOTCFG"
 grep -q "^dtparam=i2c_arm=on" "$BOOTCFG" || echo "dtparam=i2c_arm=on" | sudo tee -a "$BOOTCFG"
 grep -q "^dtoverlay=hifiberry-dac" "$BOOTCFG" || echo "dtoverlay=hifiberry-dac" | sudo tee -a "$BOOTCFG"
 
-########################################
-# PYTHON LIBS
-########################################
-echo "[*] Installing Python libraries"
-
+############################################
+# 4. PYTHON LIBS (COMME À LA MAIN)
+############################################
+echo "[4/14] Installing Python libraries"
 pip3 install --break-system-packages \
   st7789 gpiodevice requests pillow spidev
 
-########################################
-# DOWNLOAD SCRIPTS
-########################################
-echo "[*] Downloading PirateAudio scripts"
+############################################
+# 5. ALSA DMIX (AIRPLAY + SQUEEZELITE)
+############################################
+echo "[5/14] Configuring ALSA dmix"
 
+sudo tee /etc/asound.conf > /dev/null <<'EOF'
+pcm.!default {
+    type plug
+    slave.pcm "dmix"
+}
+
+pcm.dmix {
+    type dmix
+    ipc_key 1024
+    slave {
+        pcm "hw:sndrpihifiberry"
+        rate 44100
+        channels 2
+    }
+}
+EOF
+
+############################################
+# 6. DOSSIER IMAGES (COMME AVANT)
+############################################
+echo "[6/14] Creating images directory"
+mkdir -p "$HOME_DIR/images"
+chown -R $USER:$USER "$HOME_DIR/images"
+
+############################################
+# 7. DOWNLOAD DES IMAGES
+############################################
+echo "[7/14] Downloading images"
+curl -fsSL "$RAW_BASE/images/boot.png"    -o "$HOME_DIR/images/boot.png"
+curl -fsSL "$RAW_BASE/images/idle.png"    -o "$HOME_DIR/images/idle.png"
+curl -fsSL "$RAW_BASE/images/airplay.png" -o "$HOME_DIR/images/airplay.png"
+chown -R $USER:$USER "$HOME_DIR/images"
+
+############################################
+# 8. DOWNLOAD DES SCRIPTS PYTHON (INTOUCHABLES)
+############################################
+echo "[8/14] Downloading Python scripts (unchanged)"
 curl -fsSL "$RAW_BASE/pirate_display.py" -o "$HOME_DIR/pirate_display.py"
 curl -fsSL "$RAW_BASE/pirate_buttons.py" -o "$HOME_DIR/pirate_buttons.py"
-
 chmod +x "$HOME_DIR/pirate_display.py" "$HOME_DIR/pirate_buttons.py"
 chown $USER:$USER "$HOME_DIR/pirate_display.py" "$HOME_DIR/pirate_buttons.py"
 
-########################################
-# IMAGES
-########################################
-echo "[*] Installing images"
+############################################
+# 9. SERVICE ÉCRAN (RETARDÉ COMME TESTÉ)
+############################################
+echo "[9/14] Creating display service"
 
-mkdir -p "$IMG_DIR"
-
-curl -fsSL "$RAW_BASE/images/boot.png"    -o "$IMG_DIR/boot.png"
-curl -fsSL "$RAW_BASE/images/idle.png"    -o "$IMG_DIR/idle.png"
-curl -fsSL "$RAW_BASE/images/airplay.png" -o "$IMG_DIR/airplay.png"
-
-chown -R $USER:$USER "$IMG_DIR"
-
-########################################
-# DISPLAY SERVICE
-########################################
-echo "[*] Creating display service"
-
-sudo tee /etc/systemd/system/pirate-display.service > /dev/null <<EOF
+sudo tee /etc/systemd/system/pirate-display.service > /dev/null <<'EOF'
 [Unit]
 Description=Pirate Audio Display
 After=network-online.target
@@ -127,22 +112,21 @@ Wants=network-online.target
 
 [Service]
 User=raspberry
-EnvironmentFile=$ENV_FILE
-ExecStartPre=/usr/bin/bash -c 'until [ -e /dev/spidev0.0 ]; do sleep 0.2; done'
+ExecStartPre=/bin/sleep 15
 ExecStart=/usr/bin/python3 /home/raspberry/pirate_display.py
 Restart=always
-RestartSec=2
+RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-########################################
-# BUTTONS SERVICE
-########################################
-echo "[*] Creating buttons service"
+############################################
+# 10. SERVICE BOUTONS (SIMPLE)
+############################################
+echo "[10/14] Creating buttons service"
 
-sudo tee /etc/systemd/system/pirate-buttons.service > /dev/null <<EOF
+sudo tee /etc/systemd/system/pirate-buttons.service > /dev/null <<'EOF'
 [Unit]
 Description=Pirate Audio Buttons
 After=network-online.target
@@ -152,28 +136,32 @@ Wants=network-online.target
 User=raspberry
 ExecStart=/usr/bin/python3 /home/raspberry/pirate_buttons.py
 Restart=always
-RestartSec=2
+RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-########################################
-# ENABLE SERVICES
-########################################
-echo "[*] Enabling services"
-
+############################################
+# 11. SYSTEMD RELOAD
+############################################
+echo "[11/14] Reloading systemd"
 sudo systemctl daemon-reload
+
+############################################
+# 12. ENABLE SERVICES (PAS DE START IMMÉDIAT)
+############################################
+echo "[12/14] Enabling services"
 sudo systemctl enable pirate-display
 sudo systemctl enable pirate-buttons
 sudo systemctl enable squeezelite
 sudo systemctl enable shairport-sync
 
-########################################
-# REBOOT
-########################################
-echo
-echo "[OK] Installation complete"
-echo "[INFO] Rebooting in 5 seconds"
+############################################
+# 13. FIN
+############################################
+echo "[13/14] Installation finished"
+echo "[14/14] Rebooting in 5 seconds"
+
 sleep 5
 sudo reboot
